@@ -42,11 +42,6 @@ class CarNavigation:
         self.phase_start_pose = None
         self.phase_start_yaw = 0.0
         
-        # 控制状态变量
-        self.control_active = False
-        self.target_reached = False
-        self.waiting_for_next_phase = False
-        
         # 控制参数 - 调整容差和边长
         self.position_tolerance = 0.08  # 增大到8cm容差
         self.angle_tolerance = 0.08    # 约9度角度容差
@@ -54,9 +49,6 @@ class CarNavigation:
         
         # 订阅slam_out_pose话题（仅用于位置信息）
         rospy.Subscriber('/slam_out_pose', PoseStamped, self.pose_callback)
-        
-        # 高频控制循环 (50Hz)
-        self.control_timer = rospy.Timer(rospy.Duration(0.02), self.control_loop)
         
         rospy.loginfo("导航节点初始化完成，等待定位数据和IMU数据...")
         
@@ -147,6 +139,8 @@ class CarNavigation:
                                     self.imu_initial_yaw = self.current_imu_yaw
                                     self.imu_initialized = True
                                     rospy.loginfo(f"IMU初始化完成，初始偏航角: {math.degrees(self.imu_initial_yaw):.2f}°")
+                                
+                                rospy.logdebug(f"IMU Yaw: {math.degrees(self.current_imu_yaw):.2f}°")
                 
                 # 短暂休眠以减少CPU占用
                 rospy.sleep(0.001)
@@ -179,7 +173,7 @@ class CarNavigation:
         rospy.sleep(1)
     
     def pose_callback(self, msg):
-        """处理定位数据（仅位置信息）- 不执行控制逻辑"""
+        """处理定位数据（仅位置信息）"""
         self.current_pose = msg.pose
         
         if self.initial_pose is None:
@@ -198,8 +192,11 @@ class CarNavigation:
             self.phase_start_yaw = self.initial_yaw
             
             self.mission_state = 1
-            self.control_active = True
             rospy.loginfo("开始执行正方形路径")
+            return
+        
+        # 执行导航状态机
+        self.navigation_controller()
     
     def calculate_distance_from_start(self):
         """计算从阶段起始点开始的直线距离"""
@@ -221,12 +218,16 @@ class CarNavigation:
         while error < -math.pi:
             error += 2 * math.pi
         
+        rospy.logdebug(f"角度误差: {math.degrees(error):.2f}°")
+            
         return error
     
     def send_control_command(self, command):
-        """发送控制命令 - 移除不必要的休眠"""
+        """发送控制命令"""
         try:
             self.ser.write(command.encode())
+            rospy.sleep(0.1)
+            self.ser.write('!'.encode())
             rospy.logdebug(f"发送命令: {command}")
         except Exception as e:
             rospy.logerr(f"发送命令失败: {e}")
@@ -235,12 +236,10 @@ class CarNavigation:
         """停止小车"""
         self.send_control_command('0')
         rospy.loginfo("停止小车")
+        rospy.sleep(0.5)  # 增加停止后的稳定时间
     
-    def control_loop(self, event):
-        """高频控制循环 (50Hz)"""
-        if not self.control_active or self.waiting_for_next_phase:
-            return
-            
+    def navigation_controller(self):
+        """导航主控制器"""
         if self.mission_state == 0 or self.current_pose is None or not self.imu_initialized:
             return
         
@@ -253,7 +252,6 @@ class CarNavigation:
         elif self.mission_state == 8:
             # 任务完成
             self.stop_car()
-            self.control_active = False
             rospy.loginfo("正方形导航任务完成!")
             rospy.signal_shutdown("任务完成")
     
@@ -266,24 +264,18 @@ class CarNavigation:
         
         # 检查是否达到目标距离
         if distance >= self.square_side_length - self.position_tolerance:
-            if not self.target_reached:
-                # 立即停止并标记状态
-                self.stop_car()
-                self.target_reached = True
-                rospy.loginfo(f"✓ 完成第{(self.mission_state+1)//2}条边的前进: {distance:.3f}m")
-                
-                # 准备下一阶段
-                self.phase_start_pose = self.current_pose
-                self.phase_start_yaw = self.get_current_yaw()
-                self.mission_state += 1
-                
-                # 使用定时器来处理阶段间停顿，不阻塞控制循环
-                self.waiting_for_next_phase = True
-                rospy.Timer(rospy.Duration(1.5), self.continue_mission, oneshot=True)
+            self.stop_car()
+            rospy.loginfo(f"✓ 完成第{(self.mission_state+1)//2}条边的前进: {distance:.3f}m")
+            
+            # 记录下一阶段的起始位置
+            self.phase_start_pose = self.current_pose
+            self.phase_start_yaw = self.get_current_yaw()
+            
+            self.mission_state += 1
+            rospy.sleep(1.5)  # 增加阶段间停顿
             return
         
-        # 重置状态并前进
-        self.target_reached = False
+        # 直线前进
         self.send_control_command('A')
     
     def turn_right_90(self):
@@ -299,46 +291,30 @@ class CarNavigation:
     
         # 检查是否达到目标角度
         if abs(angle_error) < self.angle_tolerance:
-            if not self.target_reached:
-                # 立即停止并标记状态
-                self.stop_car()
-                self.target_reached = True
-                rospy.loginfo(f"✓ 完成第{turn_count}次90度右转")
-            
-                # 准备下一阶段
-                self.phase_start_pose = self.current_pose
-                self.phase_start_yaw = self.get_current_yaw()
-                self.mission_state += 1
-                
-                # 使用定时器来处理阶段间停顿
-                self.waiting_for_next_phase = True
-                rospy.Timer(rospy.Duration(1.5), self.continue_mission, oneshot=True)
+            self.stop_car()
+            rospy.loginfo(f"✓ 完成第{turn_count}次90度右转")
+        
+            # 记录下一阶段的起始位置
+            self.phase_start_pose = self.current_pose
+            self.phase_start_yaw = self.get_current_yaw()
+        
+            self.mission_state += 1
+            rospy.sleep(1.5)  # 增加阶段间停顿
             return
     
-        # 重置状态并右转
-        self.target_reached = False
+        # 持续右转，直到达到目标角度
         self.send_control_command('C')  # 持续右转
-    
-    def continue_mission(self, event):
-        """继续执行任务（定时器回调）"""
-        self.target_reached = False
-        self.waiting_for_next_phase = False
-        rospy.loginfo(f"开始阶段 {self.mission_state}")
     
     def run(self):
         """主循环"""
-        rospy.spin()
+        rate = rospy.Rate(10)  # 10Hz
+        while not rospy.is_shutdown():
+            rate.sleep()
         
         # 程序退出时停止小车
-        self.cleanup()
-
-    def cleanup(self):
-        """清理资源"""
         self.imu_running = False
-        self.control_active = False
         self.stop_car()
         try:
-            self.control_timer.shutdown()
             self.ser.write('0'.encode())
             self.ser.close()
         except:
@@ -350,7 +326,3 @@ if __name__ == '__main__':
         navigator.run()
     except rospy.ROSInterruptException:
         pass
-    except Exception as e:
-        rospy.logerr(f"程序异常: {e}")
-    finally:
-        rospy.loginfo("程序结束")
