@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import rospy
 import math
 import serial
@@ -7,17 +7,15 @@ import sys
 import select
 import tty
 import termios
-from geometry_msgs.msg import PoseStamped
 
-class CarManualControl:
+class PureManualControl:
     def __init__(self):
-        rospy.init_node('car_manual_control', anonymous=True)
+        rospy.init_node('pure_manual_control', anonymous=True)
         
         # IMU数据相关变量
         self.current_imu_yaw = 0.0
         self.last_imu_time = 0
         self.imu_initialized = False
-        self.imu_initial_yaw = 0.0
         
         # 串口初始化
         try:
@@ -46,14 +44,9 @@ class CarManualControl:
             'q': 'quit' # 退出
         }
         
-        # 订阅slam_out_pose话题（用于显示位置信息）
-        rospy.Subscriber('/slam_out_pose', PoseStamped, self.pose_callback)
-        self.current_pose = None
-        
-        rospy.loginfo("手动控制节点初始化完成")
+        rospy.loginfo("纯手动控制节点初始化完成")
         rospy.loginfo("使用 WASD 控制移动，X 停止，Q 退出")
-        rospy.loginfo("W:前进, S:后退, A:左转, D:右转, X:停止")
-        
+    
     def calculate_checksum(self, data):
         """计算XOR校验和"""
         checksum = 0
@@ -124,9 +117,8 @@ class CarManualControl:
                                 self.last_imu_time = rospy.get_time()
                                 
                                 if not self.imu_initialized:
-                                    self.imu_initial_yaw = self.current_imu_yaw
                                     self.imu_initialized = True
-                                    rospy.loginfo(f"IMU初始化完成，初始偏航角: {math.degrees(self.imu_initial_yaw):.2f}°")
+                                    rospy.loginfo(f"IMU初始化完成")
                 
                 rospy.sleep(0.001)
                 
@@ -156,16 +148,10 @@ class CarManualControl:
         rospy.loginfo("负压吸附已开启，速度已降低")
         rospy.sleep(1)
     
-    def pose_callback(self, msg):
-        """处理定位数据"""
-        self.current_pose = msg.pose
-    
     def send_control_command(self, command):
         """发送控制命令"""
         try:
             self.ser.write(command.encode())
-            rospy.sleep(0.1)
-            self.ser.write('!'.encode())
             rospy.loginfo(f"执行命令: {command}")
         except Exception as e:
             rospy.logerr(f"发送命令失败: {e}")
@@ -191,22 +177,21 @@ class CarManualControl:
     
     def display_status(self):
         """显示当前状态"""
-        if self.current_pose is not None:
-            x = self.current_pose.position.x
-            y = self.current_pose.position.y
-            yaw_deg = math.degrees(self.get_current_yaw())
-            print(f"\r位置: ({x:.3f}, {y:.3f}) | 角度: {yaw_deg:.2f}° | 等待命令...", end='', flush=True)
-        else:
-            yaw_deg = math.degrees(self.get_current_yaw())
-            print(f"\r角度: {yaw_deg:.2f}° | 等待命令...", end='', flush=True)
+        yaw_deg = math.degrees(self.get_current_yaw())
+        print(f"\r当前角度: {yaw_deg:.2f}° | 等待命令 (WASD X Q)...", end='', flush=True)
     
     def run_manual_control(self):
         """运行手动控制"""
         rate = rospy.Rate(10)  # 10Hz
         
-        print("\n=== 机器人手动控制 ===")
-        print("W:前进, S:后退, A:左转, D:右转, X:停止, Q:退出")
-        print("=" * 30)
+        print("\n=== 纯手动控制模式 ===")
+        print("W: 前进")
+        print("S: 后退") 
+        print("A: 左转")
+        print("D: 右转")
+        print("X: 停止")
+        print("Q: 退出")
+        print("=" * 25)
         
         while not rospy.is_shutdown():
             # 显示状态
@@ -220,7 +205,7 @@ class CarManualControl:
                     command = self.command_map[key]
                     
                     if command == 'quit':
-                        print("\n退出手动控制")
+                        print("\n退出程序")
                         break
                     else:
                         # 发送控制命令
@@ -239,7 +224,6 @@ class CarManualControl:
         except KeyboardInterrupt:
             print("\n用户中断")
         finally:
-            # 清理工作
             self.cleanup()
     
     def cleanup(self):
@@ -256,7 +240,7 @@ class CarManualControl:
 
 if __name__ == '__main__':
     try:
-        controller = CarManualControl()
+        controller = PureManualControl()
         controller.run()
     except rospy.ROSInterruptException:
         pass
