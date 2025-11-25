@@ -51,17 +51,16 @@ class PoolCleaningTest:
         self.target_turn_angle = math.pi / 2  # 90度
         self.angle_tolerance = 0.05  # 约3度角度容差
         
-        # 状态变量
+        # 状态变量 - 关键修改！
         self.running = True
         self.current_state = "INIT"
-        self.turn_direction = "RIGHT"
-        self.turn_start_yaw = 0.0  # 转向开始时的角度
+        self.current_turn_direction = "LEFT"  # 起始转向方向
+        self.initial_yaw = 0.0  # 初始角度（绝对0度基准）
         self.turn_target_yaw = 0.0  # 转向目标角度
-        self.turn_count = 0
+        self.edge_count = 0  # 边计数
         self.forward_start_time = 0.0
         self.forward_progress = 0.0
         self.task_completed = False
-        self.emergency_stop = False
         self.final_edge_started = False  # 标记是否开始最后一条边
         
         # 启动TOF读取线程
@@ -71,6 +70,9 @@ class PoolCleaningTest:
         
         # 等待传感器数据初始化
         self.wait_for_sensors_ready()
+        
+        # 记录初始角度
+        self.record_initial_yaw()
         
         # 主控制循环
         self.control_loop()
@@ -96,6 +98,22 @@ class PoolCleaningTest:
             rospy.loginfo("TOF初始化完成")
         else:
             rospy.logwarn("TOF数据初始化超时")
+    
+    def record_initial_yaw(self):
+        """记录初始角度作为绝对0度基准"""
+        if self.imu_initialized:
+            # 取多个采样点平均以提高精度
+            yaw_sum = 0.0
+            sample_count = 10
+            for i in range(sample_count):
+                yaw_sum += self.get_current_yaw()
+                rospy.sleep(0.1)
+            
+            self.initial_yaw = yaw_sum / sample_count
+            rospy.loginfo(f"🎯 初始角度已记录: {math.degrees(self.initial_yaw):.2f}° (绝对0度基准)")
+        else:
+            rospy.logwarn("IMU未初始化，无法记录初始角度")
+            self.initial_yaw = 0.0
     
     def read_imu_data(self):
         """读取IMU串口数据"""
@@ -249,11 +267,12 @@ class PoolCleaningTest:
             self.send_control_command('D')  # 左转
     
     def control_loop(self):
-        """主控制循环 - 使用IMU精确角度控制"""
+        """主控制循环 - 弓字形巡检"""
         rospy.loginfo("=== 水池清理任务开始 ===")
         rospy.loginfo(f"停止距离: {self.stop_distance}米")
-        rospy.loginfo(f"前进距离: {self.forward_distance}米")
-        rospy.loginfo("使用IMU角度反馈进行精确转向控制")
+        rospy.loginfo(f"侧移距离: {self.forward_distance}米")
+        rospy.loginfo("🔄 使用弓字形巡检模式")
+        rospy.loginfo(f"起始转向方向: {self.current_turn_direction}")
         rospy.loginfo("按 Ctrl+C 停止测试")
         
         try:
@@ -270,12 +289,12 @@ class PoolCleaningTest:
                 
                 if self.current_state == "FORWARD":
                     self.handle_forward_state()
-                elif self.current_state == "FIRST_TURN":
-                    self.handle_first_turn_state()
-                elif self.current_state == "FORWARD_BETWEEN_TURNS":
-                    self.handle_forward_between_turns_state()
-                elif self.current_state == "SECOND_TURN":
-                    self.handle_second_turn_state()
+                elif self.current_state == "TURN_AFTER_EDGE":
+                    self.handle_turn_after_edge_state()
+                elif self.current_state == "SIDEWAYS_MOVE":
+                    self.handle_sideways_move_state()
+                elif self.current_state == "TURN_FOR_NEXT_EDGE":
+                    self.handle_turn_for_next_edge_state()
                 elif self.current_state == "FINAL_TURN":
                     self.handle_final_turn_state()
                 elif self.current_state == "FINAL_FORWARD":
@@ -285,12 +304,12 @@ class PoolCleaningTest:
                 current_yaw = math.degrees(self.get_current_yaw())
                 rospy.loginfo_throttle(2, 
                     f"状态: {self.current_state}, 距离: {self.current_distance:.3f}m, "
-                    f"当前角度: {current_yaw:.1f}°, 转向计数: {self.turn_count}")
+                    f"当前角度: {current_yaw:.1f}°, 边计数: {self.edge_count}, 转向方向: {self.current_turn_direction}")
                 
                 rate.sleep()
             
             if self.task_completed:
-                rospy.loginfo("🎉 矩形巡检任务完成！")
+                rospy.loginfo("🎉 弓字形巡检任务完成！")
             else:
                 rospy.loginfo("=== 水池清理任务结束 ===")
             
@@ -305,51 +324,37 @@ class PoolCleaningTest:
         """处理前进状态"""
         if self.current_distance <= self.stop_distance:
             self.stop_robot()
-            rospy.loginfo(f"🎯 检测到障碍物！距离: {self.current_distance:.3f}m")
+            rospy.loginfo(f"🎯 检测到边界！距离: {self.current_distance:.3f}m")
             
             if self.final_edge_started:
-                # 如果已经开始最后一条边，那么这次检测到障碍物就结束任务
                 rospy.loginfo("🎉 到达最终边界，任务完成！")
                 self.task_completed = True
                 return
             
-            # 切换到第一次转向状态
-            self.current_state = "FIRST_TURN"
-            self.turn_start_yaw = self.get_current_yaw()
-            self.turn_count = 1
+            # 切换到转向状态
+            self.current_state = "TURN_AFTER_EDGE"
+            self.edge_count += 1
             
-            # 确定转向方向（轮流）
-            if self.turn_direction == "RIGHT":
-                self.turn_direction = "LEFT"
-            else:
-                self.turn_direction = "RIGHT"
-            
-            rospy.loginfo(f"开始第一次转向: {self.turn_direction}")
-            self.start_first_turn()
+            rospy.loginfo(f"开始第{self.edge_count}条边结束转向: {self.current_turn_direction}")
+            self.start_turn_after_edge()
     
-    def start_first_turn(self):
-        """开始第一次转向"""
-        self.turn_target_yaw = self.turn_start_yaw
+    def start_turn_after_edge(self):
+        """开始边结束后的转向"""
+        current_yaw = self.get_current_yaw()
         
-        if self.turn_direction == "RIGHT":
-            self.turn_target_yaw -= self.target_turn_angle  # 右转为负角度
+        if self.current_turn_direction == "LEFT":
+            self.turn_target_yaw = current_yaw + self.target_turn_angle
         else:
-            self.turn_target_yaw += self.target_turn_angle  # 左转为正角度
+            self.turn_target_yaw = current_yaw - self.target_turn_angle
         
-        # 规范化目标角度
-        while self.turn_target_yaw > math.pi:
-            self.turn_target_yaw -= 2 * math.pi
-        while self.turn_target_yaw < -math.pi:
-            self.turn_target_yaw += 2 * math.pi
-        
-        rospy.loginfo(f"第一次转向: {math.degrees(self.turn_start_yaw):.1f}° → {math.degrees(self.turn_target_yaw):.1f}°")
-        self.start_turn(self.turn_direction)
+        rospy.loginfo(f"边结束转向: {math.degrees(current_yaw):.1f}° → {math.degrees(self.turn_target_yaw):.1f}°")
+        self.start_turn(self.current_turn_direction)
     
-    def handle_first_turn_state(self):
-        """处理第一次转向状态"""
+    def handle_turn_after_edge_state(self):
+        """处理边结束后的转向状态"""
         if not self.imu_initialized:
             rospy.logwarn("IMU未初始化，使用时间控制")
-            self.fallback_first_turn()
+            self.fallback_turn_after_edge()
             return
         
         current_yaw = self.get_current_yaw()
@@ -358,23 +363,22 @@ class PoolCleaningTest:
         # 检查是否到达目标角度
         if abs(angle_error) <= self.angle_tolerance:
             self.stop_robot()
-            rospy.loginfo(f"第一次转向完成！当前角度: {math.degrees(current_yaw):.1f}°")
+            rospy.loginfo(f"✅ 边结束转向完成！当前角度: {math.degrees(current_yaw):.1f}°")
             
-            # 短暂停顿后开始前进0.2米
+            # 短暂停顿后开始侧向移动
             rospy.sleep(0.5)
-            self.start_forward_between_turns()
+            self.start_sideways_move()
     
-    def start_forward_between_turns(self):
-        """开始两次转弯之间的前进"""
-        self.current_state = "FORWARD_BETWEEN_TURNS"
+    def start_sideways_move(self):
+        """开始侧向移动（前进0.2米）"""
+        self.current_state = "SIDEWAYS_MOVE"
         self.forward_start_time = time.time()
         self.forward_progress = 0.0
-        self.emergency_stop = False
         self.start_forward()
-        rospy.loginfo(f"开始两次转弯之间的前进0.2米")
+        rospy.loginfo(f"开始侧向移动0.2米")
     
-    def handle_forward_between_turns_state(self):
-        """处理两次转弯之间的前进状态"""
+    def handle_sideways_move_state(self):
+        """处理侧向移动状态"""
         # 计算前进进度（基于时间估算）
         elapsed_time = time.time() - self.forward_start_time
         estimated_progress = elapsed_time * 0.1  # 假设速度约为0.1m/s
@@ -385,51 +389,41 @@ class PoolCleaningTest:
         # 检查是否到达目标距离
         if estimated_progress >= self.forward_distance:
             self.stop_robot()
-            rospy.loginfo(f"前进0.2米完成，开始第二次转向")
-            self.current_state = "SECOND_TURN"
+            rospy.loginfo(f"侧向移动0.2米完成")
+            self.current_state = "TURN_FOR_NEXT_EDGE"
             rospy.sleep(0.5)
-            self.start_second_turn()
+            self.start_turn_for_next_edge()
             return
         
-        # 检查是否遇到紧急停止条件
+        # 检查是否遇到紧急停止条件（提前遇到边界）
         if self.current_distance <= self.stop_distance:
             self.stop_robot()
-            rospy.loginfo(f"🚨 检测到边界！开始最后一条边的行走")
-            self.emergency_stop = True
+            rospy.loginfo(f"🚨 检测到侧向边界！开始最后一条边的行走")
+            self.final_edge_started = True
             rospy.sleep(0.5)
             
-            # 开始最后一条边的行走
-            self.final_edge_started = True
+            # 需要再转90度才能开始最后一条边
             self.current_state = "FINAL_TURN"
             rospy.loginfo("开始最终转向")
             self.start_final_turn()
     
-    def start_second_turn(self):
-        """开始第二次转向"""
-        self.turn_count = 2
+    def start_turn_for_next_edge(self):
+        """开始为下一条边转向"""
+        # 这次转向方向与上次相同（完成U形转弯）
         current_yaw = self.get_current_yaw()
-        self.turn_target_yaw = current_yaw  # 从当前位置开始
-        
-        # 第二次转向方向与第一次相同
-        if self.turn_direction == "RIGHT":
-            self.turn_target_yaw -= self.target_turn_angle
+        if self.current_turn_direction == "LEFT":
+            self.turn_target_yaw = current_yaw + self.target_turn_angle
         else:
-            self.turn_target_yaw += self.target_turn_angle
+            self.turn_target_yaw = current_yaw - self.target_turn_angle
         
-        # 规范化目标角度
-        while self.turn_target_yaw > math.pi:
-            self.turn_target_yaw -= 2 * math.pi
-        while self.turn_target_yaw < -math.pi:
-            self.turn_target_yaw += 2 * math.pi
-        
-        rospy.loginfo(f"第二次转向: {math.degrees(current_yaw):.1f}° → {math.degrees(self.turn_target_yaw):.1f}°")
-        self.start_turn(self.turn_direction)
+        rospy.loginfo(f"下一条边转向: {math.degrees(current_yaw):.1f}° → {math.degrees(self.turn_target_yaw):.1f}°")
+        self.start_turn(self.current_turn_direction)
     
-    def handle_second_turn_state(self):
-        """处理第二次转向状态"""
+    def handle_turn_for_next_edge_state(self):
+        """处理为下一条边转向的状态"""
         if not self.imu_initialized:
             rospy.logwarn("IMU未初始化，使用时间控制")
-            self.fallback_second_turn()
+            self.fallback_turn_for_next_edge()
             return
         
         current_yaw = self.get_current_yaw()
@@ -438,33 +432,30 @@ class PoolCleaningTest:
         # 检查是否到达目标角度
         if abs(angle_error) <= self.angle_tolerance:
             self.stop_robot()
-            rospy.loginfo(f"第二次转向完成！当前角度: {math.degrees(current_yaw):.1f}°")
+            rospy.loginfo(f"✅ 下一条边转向完成！当前角度: {math.degrees(current_yaw):.1f}°")
             
-            # 短暂停顿后继续前进
+            # 切换转向方向，为下一次做准备
+            if self.current_turn_direction == "LEFT":
+                self.current_turn_direction = "RIGHT"
+            else:
+                self.current_turn_direction = "LEFT"
+            
             rospy.sleep(0.5)
             self.current_state = "FORWARD"
             self.start_forward()
-            rospy.loginfo("转向序列完成，继续前进")
+            rospy.loginfo(f"转向方向切换为: {self.current_turn_direction}，开始下一条边")
     
     def start_final_turn(self):
-        """开始最终转向（完成矩形的最后一条边）"""
+        """开始最终转向（完成最后一条边）"""
         current_yaw = self.get_current_yaw()
-        self.turn_target_yaw = current_yaw
-        
-        # 最终转向方向与之前相同
-        if self.turn_direction == "RIGHT":
-            self.turn_target_yaw -= self.target_turn_angle
+        # 最终转向与当前转向方向相同
+        if self.current_turn_direction == "LEFT":
+            self.turn_target_yaw = current_yaw + self.target_turn_angle
         else:
-            self.turn_target_yaw += self.target_turn_angle
-        
-        # 规范化目标角度
-        while self.turn_target_yaw > math.pi:
-            self.turn_target_yaw -= 2 * math.pi
-        while self.turn_target_yaw < -math.pi:
-            self.turn_target_yaw += 2 * math.pi
+            self.turn_target_yaw = current_yaw - self.target_turn_angle
         
         rospy.loginfo(f"最终转向: {math.degrees(current_yaw):.1f}° → {math.degrees(self.turn_target_yaw):.1f}°")
-        self.start_turn(self.turn_direction)
+        self.start_turn(self.current_turn_direction)
     
     def handle_final_turn_state(self):
         """处理最终转向状态"""
@@ -479,7 +470,7 @@ class PoolCleaningTest:
         # 检查是否到达目标角度
         if abs(angle_error) <= self.angle_tolerance:
             self.stop_robot()
-            rospy.loginfo(f"最终转向完成！当前角度: {math.degrees(current_yaw):.1f}°")
+            rospy.loginfo(f"✅ 最终转向完成！当前角度: {math.degrees(current_yaw):.1f}°")
             
             # 短暂停顿后开始最后一条边的前进
             rospy.sleep(0.5)
@@ -494,38 +485,45 @@ class PoolCleaningTest:
             self.stop_robot()
             rospy.loginfo(f"🎉 到达最终边界！距离: {self.current_distance:.3f}m")
             self.task_completed = True
-            rospy.loginfo("矩形巡检任务完成！")
+            rospy.loginfo("弓字形巡检任务完成！")
     
-    def fallback_first_turn(self):
-        """回退方案：第一次转向时间控制"""
-        rospy.logwarn("使用时间控制第一次转向")
+    def fallback_turn_after_edge(self):
+        """回退方案：边结束转向时间控制"""
+        rospy.logwarn("使用时间控制边结束转向")
         self.stop_robot()
         rospy.sleep(0.5)
-        self.start_turn(self.turn_direction)
+        self.start_turn(self.current_turn_direction)
         rospy.sleep(2.0)  # 固定时间转向
         self.stop_robot()
         rospy.sleep(0.5)
-        self.start_forward_between_turns()
+        self.start_sideways_move()
     
-    def fallback_second_turn(self):
-        """回退方案：第二次转向时间控制"""
-        rospy.logwarn("使用时间控制第二次转向")
+    def fallback_turn_for_next_edge(self):
+        """回退方案：下一条边转向时间控制"""
+        rospy.logwarn("使用时间控制下一条边转向")
         self.stop_robot()
         rospy.sleep(0.5)
-        self.start_turn(self.turn_direction)
+        self.start_turn(self.current_turn_direction)
         rospy.sleep(2.0)  # 固定时间转向
         self.stop_robot()
         rospy.sleep(0.5)
+        
+        # 切换转向方向
+        if self.current_turn_direction == "LEFT":
+            self.current_turn_direction = "RIGHT"
+        else:
+            self.current_turn_direction = "LEFT"
+        
         self.current_state = "FORWARD"
         self.start_forward()
-        rospy.loginfo("转向序列完成，继续前进")
+        rospy.loginfo(f"转向方向切换为: {self.current_turn_direction}，开始下一条边")
     
     def fallback_final_turn(self):
         """回退方案：最终转向时间控制"""
         rospy.logwarn("使用时间控制最终转向")
         self.stop_robot()
         rospy.sleep(0.5)
-        self.start_turn(self.turn_direction)
+        self.start_turn(self.current_turn_direction)
         rospy.sleep(2.0)  # 固定时间转向
         self.stop_robot()
         rospy.sleep(0.5)
