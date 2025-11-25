@@ -46,7 +46,7 @@ class PoolCleaningTest:
         self.tof_initialized = False
         
         # 控制参数
-        self.stop_distance = 0.3  # 停止距离：0.3米
+        self.stop_distance = 0.5  # 停止距离：0.5米
         self.forward_distance = 0.2  # 转弯后前进距离：0.2米
         self.target_turn_angle = math.pi / 2  # 90度
         self.angle_tolerance = 0.05  # 约3度角度容差
