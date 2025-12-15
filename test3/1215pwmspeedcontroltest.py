@@ -24,6 +24,7 @@ class AdvancedGoalNavigator:
         self.PWM_MAX = 2000      # 最大PWM值
         self.MAX_SPEED_PWM = 250  # 最大前进PWM偏移量
         self.MIN_SPEED_PWM = 30   # 最小前进PWM偏移量
+        self.MIN_OPERATING_PWM = 80  # 最低工作PWM（保证不龟速）
         self.MAX_TURN_PWM = 150   # 最大转向PWM偏移量
         
         # 电机方向修正
@@ -65,8 +66,8 @@ class AdvancedGoalNavigator:
         self.turn_start_time = 0
         
         # 控制参数
-        self.position_tolerance = 0.03  # 3cm位置容差
-        self.angle_tolerance = 0.05     # 约3度角度容差
+        self.position_tolerance = 0.2  # 5cm位置容差（稍微放宽）
+        self.angle_tolerance = 0.08     # 约5度角度容差
         self.max_turn_angle = 0.5       # 约30度，超过这个角度需要先转向
         
         # 目标点导航变量
@@ -75,9 +76,16 @@ class AdvancedGoalNavigator:
         self.start_pose = None
         self.target_distance = 0.0
         
-        # 速度曲线参数
-        self.max_speed_distance = 1.0  # 超过此距离用最大速度
-        self.min_speed_distance = 0.1  # 小于此距离用最小速度
+        # 速度控制参数 - 关键改进！
+        self.fast_distance_threshold = 1.0  # 快速行驶距离阈值
+        self.medium_distance_threshold = 0.5  # 中速行驶距离阈值（你关心的0.5m）
+        self.slow_distance_threshold = 0.2  # 慢速行驶距离阈值
+        self.min_operating_distance = 0.1  # 最小操作距离
+        
+        # 各阶段的目标PWM平均值
+        self.fast_target_avg_pwm = 1650  # 快速阶段平均PWM (对应速度系数~0.6)
+        self.medium_target_avg_pwm = 1580  # 中速阶段平均PWM (对应速度系数~0.32)
+        self.slow_target_avg_pwm = 1540  # 慢速阶段平均PWM (对应速度系数~0.16)
         
         # TF监听器
         self.tf_listener = tf.TransformListener()
@@ -368,33 +376,53 @@ class AdvancedGoalNavigator:
         error = target_angle - current_yaw
         return self.normalize_angle(error)
     
-    def get_speed_profile(self, distance):
-        """根据距离获取速度系数（0.0到1.0）"""
-        if distance >= self.max_speed_distance:
-            return 1.0
-        elif distance <= self.min_speed_distance:
-            return 0.0
+    def get_target_speed_pwm(self, distance):
+        """根据距离获取目标PWM值 - 关键改进！"""
+        # 计算当前阶段的目标平均PWM
+        if distance >= self.fast_distance_threshold:
+            # 快速阶段
+            target_avg_pwm = self.fast_target_avg_pwm
+        elif distance >= self.medium_distance_threshold:
+            # 中速阶段 (0.5m-1.0m)
+            # 线性插值
+            ratio = (distance - self.medium_distance_threshold) / (self.fast_distance_threshold - self.medium_distance_threshold)
+            target_avg_pwm = self.medium_target_avg_pwm + ratio * (self.fast_target_avg_pwm - self.medium_target_avg_pwm)
+        elif distance >= self.slow_distance_threshold:
+            # 慢速阶段 (0.2m-0.5m) - 保持1580左右
+            target_avg_pwm = self.medium_target_avg_pwm  # 1580
+        elif distance >= self.min_operating_distance:
+            # 极慢阶段 (0.1m-0.2m)
+            ratio = (distance - self.min_operating_distance) / (self.slow_distance_threshold - self.min_operating_distance)
+            target_avg_pwm = self.slow_target_avg_pwm + ratio * (self.medium_target_avg_pwm - self.slow_target_avg_pwm)
         else:
-            # 使用平滑的sigmoid函数，避免突变
-            x = (distance - self.min_speed_distance) / (self.max_speed_distance - self.min_speed_distance)
-            return x * x  # 平方关系，更平缓
+            # 接近目标 (<0.1m)
+            target_avg_pwm = self.slow_target_avg_pwm
+        
+        # 确保最低工作PWM
+        base_pwm = target_avg_pwm - self.PWM_NEUTRAL
+        base_pwm = max(self.MIN_OPERATING_PWM, base_pwm)
+        
+        return base_pwm
     
-    def calculate_pwm_values(self, speed_factor, turn_output):
-        """计算左右轮PWM值 - 修正转向逻辑"""
-        # 计算基础速度
-        base_speed = self.MIN_SPEED_PWM + speed_factor * (self.MAX_SPEED_PWM - self.MIN_SPEED_PWM)
+    def calculate_pwm_values(self, distance, turn_output):
+        """计算左右轮PWM值 - 使用目标PWM方法"""
+        # 获取基础速度PWM
+        base_speed = self.get_target_speed_pwm(distance)
         
         # 计算转向偏移量
         turn_offset = turn_output * self.MAX_TURN_PWM
         
-        # 关键修正：转向逻辑
+        # 转向逻辑（已验证正确）：
         # 正turn_output表示需要右转：左轮加速，右轮减速
         # 负turn_output表示需要左转：左轮减速，右轮加速
         
         left_pwm = self.PWM_NEUTRAL + base_speed + turn_offset  # 正turn_output增加左轮
         right_pwm = self.PWM_NEUTRAL + base_speed - turn_offset  # 正turn_output减少右轮
         
-        return left_pwm, right_pwm
+        # 计算平均PWM用于显示
+        avg_pwm = (left_pwm + right_pwm) / 2
+        
+        return left_pwm, right_pwm, avg_pwm
     
     def control_loop(self, event):
         """高频控制循环"""
@@ -449,28 +477,32 @@ class AdvancedGoalNavigator:
                 rospy.loginfo(f"转向完成，角度误差: {math.degrees(angle_error_to_target):.1f}°")
             
             # 转向时基本不前进
-            speed_factor = 0.1
+            base_speed = self.MIN_OPERATING_PWM * 0.5
         else:
             # 前进阶段：对准目标点前进
             # 使用PID控制角度
             turn_output = self.angle_pid.update(angle_error_to_target)
-            
-            # 根据距离计算速度
-            speed_factor = self.get_speed_profile(position_error)
-            
-            # 接近目标时减速
-            if position_error < 0.15:
-                speed_factor = min(speed_factor, 0.3)
-            
-            # 如果位置误差很小但朝向误差大，转向为主
-            if position_error < 0.1 and abs(final_angle_error) > 0.3:
-                speed_factor *= 0.3  # 大幅减速
-                # 混合角度误差：主要考虑最终朝向
-                mixed_angle_error = 0.7 * final_angle_error + 0.3 * angle_error_to_target
-                turn_output = self.angle_pid.update(mixed_angle_error)
+            base_speed = 0  # 会在calculate_pwm_values中计算
+        
+        # 如果位置误差很小但朝向误差大，转向为主
+        if position_error < 0.15 and abs(final_angle_error) > 0.3:  # 约17度
+            # 混合角度误差：主要考虑最终朝向
+            mixed_angle_error = 0.8 * final_angle_error + 0.2 * angle_error_to_target
+            turn_output = self.angle_pid.update(mixed_angle_error)
+            # 接近目标且角度误差大时，减速转向
+            if self.is_turning:
+                base_speed = self.MIN_OPERATING_PWM * 0.3
+            else:
+                base_speed = max(self.MIN_OPERATING_PWM * 0.5, base_speed * 0.5)
         
         # 计算PWM值
-        left_pwm, right_pwm = self.calculate_pwm_values(speed_factor, turn_output)
+        left_pwm, right_pwm, avg_pwm = self.calculate_pwm_values(position_error, turn_output)
+        
+        # 如果正在转向，覆盖PWM值
+        if self.is_turning:
+            left_pwm = self.PWM_NEUTRAL + base_speed + turn_output * self.MAX_TURN_PWM
+            right_pwm = self.PWM_NEUTRAL + base_speed - turn_output * self.MAX_TURN_PWM
+            avg_pwm = (left_pwm + right_pwm) / 2
         
         # 发送PWM命令
         self.send_pwm_command(left_pwm, right_pwm)
@@ -480,11 +512,22 @@ class AdvancedGoalNavigator:
         if hasattr(self, 'last_status_time'):
             if current_time - self.last_status_time > 0.5:  # 每0.5秒输出一次
                 phase = "转向" if self.is_turning else "前进"
+                
+                # 显示速度阶段
+                if position_error >= self.fast_distance_threshold:
+                    speed_stage = "快速"
+                elif position_error >= self.medium_distance_threshold:
+                    speed_stage = "中速"
+                elif position_error >= self.slow_distance_threshold:
+                    speed_stage = "慢速"
+                else:
+                    speed_stage = "极慢"
+                
                 rospy.loginfo_throttle(0.5, 
-                    f"{phase}: 距离={position_error:.3f}m | "
+                    f"{phase}({speed_stage}): 距离={position_error:.3f}m | "
                     f"目标点角度误差={math.degrees(angle_error_to_target):.1f}° | "
                     f"最终朝向误差={math.degrees(final_angle_error):.1f}° | "
-                    f"速度={speed_factor:.2f} | 转向={turn_output:.2f} | "
+                    f"平均PWM={avg_pwm:.0f} | 转向={turn_output:.2f} | "
                     f"PWM=({int(left_pwm)}, {int(right_pwm)})")
         else:
             self.last_status_time = current_time
