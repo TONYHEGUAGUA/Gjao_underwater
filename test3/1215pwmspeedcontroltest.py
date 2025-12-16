@@ -80,16 +80,16 @@ class AdvancedGoalNavigator:
         self.start_pose = None
         self.target_distance = 0.0
         
-        # 速度控制参数
+        # 速度控制参数 - 修改为三个阶段
         self.fast_distance_threshold = 1.0  # 快速行驶距离阈值
         self.medium_distance_threshold = 0.5  # 中速行驶距离阈值
-        self.slow_distance_threshold = 0.2  # 慢速行驶距离阈值
+        self.slow_distance_threshold = 0.3  # 慢速行驶距离阈值 - 从0.2改为0.3
         self.min_operating_distance = 0.1  # 最小操作距离
         
         # 各阶段的目标PWM平均值
-        self.fast_target_avg_pwm = 1600  # 快速阶段平均PWM
-        self.medium_target_avg_pwm = 1560  # 中速阶段平均PWM
-        self.slow_target_avg_pwm = 1530  # 慢速阶段平均PWM
+        self.fast_target_avg_pwm = 1650  # 快速阶段平均PWM
+        self.medium_target_avg_pwm = 1600  # 中速阶段平均PWM
+        self.slow_target_avg_pwm = 1580  # 慢速阶段平均PWM
         
         # TF监听器
         self.tf_listener = tf.TransformListener()
@@ -565,15 +565,13 @@ class AdvancedGoalNavigator:
             current_time = rospy.get_time()
             if hasattr(self, 'last_status_time'):
                 if current_time - self.last_status_time > 0.5:  # 每0.5秒输出一次
-                    # 显示速度阶段
+                    # 显示速度阶段 - 修改为只有三个阶段
                     if remaining_distance >= self.fast_distance_threshold:
                         speed_stage = "快速"
                     elif remaining_distance >= self.medium_distance_threshold:
                         speed_stage = "中速"
-                    elif remaining_distance >= self.slow_distance_threshold:
+                    else:  # 距离 < 0.5m
                         speed_stage = "慢速"
-                    else:
-                        speed_stage = "极慢"
                     
                     # 显示角度控制信息
                     angle_info = ""
