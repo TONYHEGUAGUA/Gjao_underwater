@@ -1,0 +1,680 @@
+/* style.css - 控制界面样式 */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: #f0f0f0;
+    min-height: 100vh;
+}
+
+.container {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* 头部样式 */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 0;
+    border-bottom: 2px solid #2d2d44;
+    margin-bottom: 30px;
+}
+
+header h1 {
+    font-size: 2.5em;
+    background: linear-gradient(90deg, #4CAF50, #2196F3);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.status-indicators {
+    display: flex;
+    gap: 15px;
+}
+
+.status {
+    padding: 8px 15px;
+    border-radius: 20px;
+    font-size: 0.9em;
+    font-weight: bold;
+    transition: all 0.3s ease;
+}
+
+.status.online {
+    background: linear-gradient(135deg, #4CAF50, #45a049);
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+}
+
+.status.offline {
+    background: linear-gradient(135deg, #f44336, #d32f2f);
+}
+
+.status.connecting {
+    background: linear-gradient(135deg, #FF9800, #F57C00);
+}
+
+/* 主要内容区域 */
+.main-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    margin-bottom: 30px;
+}
+
+@media (max-width: 1200px) {
+    .main-content {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* 左侧面板 */
+.left-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+}
+
+/* 视频容器 */
+.video-container {
+    background: #232339;
+    border-radius: 15px;
+    padding: 20px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.video-container h2 {
+    margin-bottom: 15px;
+    color: #4CAF50;
+    font-size: 1.5em;
+}
+
+#video-feed {
+    width: 100%;
+    height: 360px;
+    background: #000;
+    border-radius: 10px;
+    object-fit: cover;
+    border: 3px solid #2d2d44;
+}
+
+.video-controls {
+    display: flex;
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.video-controls button,
+.video-controls select {
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #2196F3, #1976D2);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.3s ease;
+}
+
+.video-controls button:hover,
+.video-controls select:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(33, 150, 243, 0.4);
+}
+
+.video-controls select {
+    background: linear-gradient(135deg, #673AB7, #512DA8);
+}
+
+/* 控制面板 */
+.control-panel {
+    background: #232339;
+    border-radius: 15px;
+    padding: 25px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.control-panel h2 {
+    margin-bottom: 20px;
+    color: #2196F3;
+    font-size: 1.5em;
+}
+
+/* 控制网格 */
+.joystick-area {
+    margin-bottom: 25px;
+}
+
+.control-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.control-btn {
+    padding: 20px;
+    border: none;
+    border-radius: 12px;
+    font-size: 1.2em;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 80px;
+}
+
+.control-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+}
+
+.control-btn:active {
+    transform: translateY(1px);
+}
+
+.control-btn.forward {
+    grid-column: 2;
+    grid-row: 1;
+    background: linear-gradient(135deg, #4CAF50, #388E3C);
+    color: white;
+}
+
+.control-btn.backward {
+    grid-column: 2;
+    grid-row: 3;
+    background: linear-gradient(135deg, #FF9800, #F57C00);
+    color: white;
+}
+
+.control-btn.left {
+    grid-column: 1;
+    grid-row: 2;
+    background: linear-gradient(135deg, #2196F3, #1976D2);
+    color: white;
+}
+
+.control-btn.right {
+    grid-column: 3;
+    grid-row: 2;
+    background: linear-gradient(135deg, #2196F3, #1976D2);
+    color: white;
+}
+
+.control-btn.stop {
+    grid-column: 2;
+    grid-row: 2;
+    background: linear-gradient(135deg, #f44336, #d32f2f);
+    color: white;
+    font-size: 1.5em;
+}
+
+/* 速度控制 */
+.speed-control,
+.turn-control {
+    margin: 15px 0;
+}
+
+.speed-control label,
+.turn-control label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: bold;
+    color: #4CAF50;
+}
+
+input[type="range"] {
+    width: 100%;
+    height: 10px;
+    -webkit-appearance: none;
+    background: #2d2d44;
+    border-radius: 5px;
+    outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 25px;
+    height: 25px;
+    border-radius: 50%;
+    background: #2196F3;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(33, 150, 243, 0.5);
+}
+
+/* 负压吸附控制 */
+.vacuum-control {
+    background: #2d2d44;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.vacuum-control h3 {
+    color: #FF5722;
+    margin-bottom: 15px;
+    font-size: 1.2em;
+}
+
+.vacuum-buttons {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.vacuum-btn {
+    flex: 1;
+    padding: 15px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1.1em;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.vacuum-btn.on {
+    background: linear-gradient(135deg, #FF5722, #E64A19);
+    color: white;
+}
+
+.vacuum-btn.off {
+    background: linear-gradient(135deg, #757575, #616161);
+    color: white;
+}
+
+.vacuum-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.status-indicator {
+    font-size: 1.1em;
+}
+
+.status-indicator span.on {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+.status-indicator span.off {
+    color: #f44336;
+    font-weight: bold;
+}
+
+/* 右侧面板 */
+.right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+}
+
+/* 地图容器 */
+.map-container {
+    background: #232339;
+    border-radius: 15px;
+    padding: 20px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.map-container h2 {
+    margin-bottom: 15px;
+    color: #FF5722;
+    font-size: 1.5em;
+}
+
+#map-canvas {
+    width: 100%;
+    height: 400px;
+    background: #1a1a2e;
+    border-radius: 10px;
+    border: 3px solid #2d2d44;
+}
+
+.map-controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.map-controls button {
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #673AB7, #512DA8);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.3s ease;
+}
+
+.map-controls button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(103, 58, 183, 0.4);
+}
+
+/* 目标点列表 */
+.goal-list {
+    margin-top: 20px;
+    background: #2d2d44;
+    border-radius: 10px;
+    padding: 15px;
+}
+
+.goal-list h3 {
+    color: #FF9800;
+    margin-bottom: 10px;
+    font-size: 1.2em;
+}
+
+#goals-list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding-right: 10px;
+}
+
+.goal-item {
+    background: #232339;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: all 0.3s ease;
+}
+
+.goal-item:hover {
+    background: #2a2a42;
+    transform: translateX(5px);
+}
+
+.goal-number {
+    background: #FF5722;
+    color: white;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+
+.goal-coords {
+    flex: 1;
+    margin: 0 15px;
+    font-family: monospace;
+    font-size: 0.9em;
+}
+
+.goal-time {
+    color: #aaa;
+    font-size: 0.8em;
+    margin-right: 10px;
+}
+
+.goal-remove {
+    background: #f44336;
+    color: white;
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1.2em;
+    transition: all 0.3s ease;
+}
+
+.goal-remove:hover {
+    background: #d32f2f;
+    transform: scale(1.1);
+}
+
+/* 信息面板 */
+.info-panel {
+    background: #232339;
+    border-radius: 15px;
+    padding: 25px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.info-panel h2 {
+    margin-bottom: 20px;
+    color: #9C27B0;
+    font-size: 1.5em;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+.info-item {
+    background: #2d2d44;
+    padding: 15px;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.info-item:hover {
+    background: #35354d;
+    transform: translateY(-2px);
+}
+
+.info-item label {
+    display: block;
+    color: #4CAF50;
+    font-size: 0.9em;
+    margin-bottom: 5px;
+}
+
+.info-item span {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: white;
+}
+
+/* 日志面板 */
+.log-panel {
+    background: #2d2d44;
+    border-radius: 10px;
+    padding: 15px;
+}
+
+.log-panel h3 {
+    color: #00BCD4;
+    margin-bottom: 10px;
+    font-size: 1.2em;
+}
+
+#log-container {
+    height: 200px;
+    overflow-y: auto;
+    background: #232339;
+    border-radius: 5px;
+    padding: 10px;
+    margin-bottom: 10px;
+    font-family: monospace;
+    font-size: 0.9em;
+}
+
+.log-entry {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #3d3d5c;
+    line-height: 1.4;
+}
+
+.log-time {
+    color: #FF9800;
+}
+
+.log-source {
+    color: #4CAF50;
+    font-weight: bold;
+    margin: 0 10px;
+}
+
+.log-message {
+    color: #e0e0e0;
+}
+
+.log-panel button {
+    padding: 8px 20px;
+    background: linear-gradient(135deg, #f44336, #d32f2f);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.3s ease;
+}
+
+.log-panel button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4);
+}
+
+/* 页脚 */
+footer {
+    text-align: center;
+    padding: 20px;
+    border-top: 2px solid #2d2d44;
+    color: #aaa;
+    font-size: 0.9em;
+}
+
+.connection-info {
+    margin-top: 10px;
+    font-family: monospace;
+}
+
+/* 模态框 */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.8);
+}
+
+.modal-content {
+    background: #232339;
+    margin: 5% auto;
+    padding: 30px;
+    border-radius: 15px;
+    width: 80%;
+    max-width: 800px;
+    position: relative;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+.modal .close {
+    position: absolute;
+    right: 20px;
+    top: 15px;
+    color: #aaa;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.modal .close:hover {
+    color: white;
+}
+
+#snapshot-preview {
+    width: 100%;
+    max-height: 500px;
+    object-fit: contain;
+    border-radius: 10px;
+    margin: 20px 0;
+    border: 3px solid #2d2d44;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+}
+
+.modal-actions button {
+    padding: 12px 30px;
+    background: linear-gradient(135deg, #2196F3, #1976D2);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1.1em;
+    transition: all 0.3s ease;
+}
+
+.modal-actions button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(33, 150, 243, 0.4);
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+    width: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #2d2d44;
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #4CAF50;
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #45a049;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    header {
+        flex-direction: column;
+        text-align: center;
+        gap: 15px;
+    }
+    
+    .status-indicators {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .control-grid {
+        gap: 10px;
+    }
+    
+    .control-btn {
+        min-height: 60px;
+        font-size: 1em;
+    }
+    
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
+}

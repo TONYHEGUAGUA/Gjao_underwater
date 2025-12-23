@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>水下机器人控制界面</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>水下机器人控制系统</h1>
+            <div class="status-indicators">
+                <div id="ros-status" class="status offline">ROS: 断开</div>
+                <div id="camera-status" class="status offline">摄像头: 断开</div>
+                <div id="robot-status" class="status offline">机器人: 断开</div>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- 左侧：视频和控制面板 -->
+            <div class="left-panel">
+                <div class="video-container">
+                    <h2>实时视频</h2>
+                    <img id="video-feed" src="{{ url_for('video_feed') }}" 
+                         alt="摄像头视频流" crossorigin="anonymous">
+                    <div class="video-controls">
+                        <button onclick="toggleVideo()" id="video-toggle">暂停视频</button>
+                        <button onclick="snapshot()">截图</button>
+                        <select id="resolution-select" onchange="changeResolution()">
+                            <option value="640x480">640x480</option>
+                            <option value="1280x720">1280x720</option>
+                            <option value="1920x1080">1920x1080</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="control-panel">
+                    <h2>机器人控制</h2>
+                    
+                    <!-- 键盘控制区域 -->
+                    <div class="joystick-area">
+                        <div class="control-grid">
+                            <button class="control-btn forward" onclick="moveForward()" 
+                                    onmousedown="startMoving('forward')" 
+                                    onmouseup="stopMoving()" 
+                                    ontouchstart="startMoving('forward')" 
+                                    ontouchend="stopMoving()">
+                                ↑ 前进
+                            </button>
+                            
+                            <button class="control-btn left" onclick="turnLeft()"
+                                    onmousedown="startTurning('left')"
+                                    onmouseup="stopTurning()"
+                                    ontouchstart="startTurning('left')"
+                                    ontouchend="stopTurning()">
+                                ← 左转
+                            </button>
+                            
+                            <button class="control-btn stop" onclick="emergencyStop()">
+                                ⬤ 停止
+                            </button>
+                            
+                            <button class="control-btn right" onclick="turnRight()"
+                                    onmousedown="startTurning('right')"
+                                    onmouseup="stopTurning()"
+                                    ontouchstart="startTurning('right')"
+                                    ontouchend="stopTurning()">
+                                → 右转
+                            </button>
+                            
+                            <button class="control-btn backward" onclick="moveBackward()"
+                                    onmousedown="startMoving('backward')"
+                                    onmouseup="stopMoving()"
+                                    ontouchstart="startMoving('backward')"
+                                    ontouchend="stopMoving()">
+                                ↓ 后退
+                            </button>
+                        </div>
+                        
+                        <div class="speed-control">
+                            <label>速度: <span id="speed-value">50%</span></label>
+                            <input type="range" id="speed-slider" min="10" max="100" value="50" 
+                                   oninput="updateSpeed(this.value)">
+                        </div>
+                        
+                        <div class="turn-control">
+                            <label>转向: <span id="turn-value">50%</span></label>
+                            <input type="range" id="turn-slider" min="10" max="100" value="50"
+                                   oninput="updateTurn(this.value)">
+                        </div>
+                    </div>
+                    
+                    <!-- 负压吸附控制 -->
+                    <div class="vacuum-control">
+                        <h3>负压吸附系统</h3>
+                        <div class="vacuum-buttons">
+                            <button class="vacuum-btn on" onclick="controlVacuum(true)">
+                                🌀 开启负压吸附
+                            </button>
+                            <button class="vacuum-btn off" onclick="controlVacuum(false)">
+                                ⭕ 关闭负压吸附
+                            </button>
+                        </div>
+                        <div id="vacuum-status" class="status-indicator">
+                            状态: <span class="off">关闭</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：地图和目标点显示 -->
+            <div class="right-panel">
+                <div class="map-container">
+                    <h2>目标点地图</h2>
+                    <canvas id="map-canvas" width="600" height="400"></canvas>
+                    
+                    <div class="map-controls">
+                        <button onclick="clearGoals()">清空目标点</button>
+                        <button onclick="exportGoals()">导出目标点</button>
+                        <button onclick="resetView()">重置视图</button>
+                    </div>
+                    
+                    <div class="goal-list">
+                        <h3>目标点列表</h3>
+                        <div id="goals-list"></div>
+                    </div>
+                </div>
+                
+                <div class="info-panel">
+                    <h2>系统信息</h2>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <label>机器人位置:</label>
+                            <span id="robot-position">(0.00, 0.00, 0.00)</span>
+                        </div>
+                        <div class="info-item">
+                            <label>当前速度:</label>
+                            <span id="current-speed">0.00 m/s</span>
+                        </div>
+                        <div class="info-item">
+                            <label>当前转向:</label>
+                            <span id="current-turn">0.00 rad/s</span>
+                        </div>
+                        <div class="info-item">
+                            <label>目标点数量:</label>
+                            <span id="goal-count">0</span>
+                        </div>
+                        <div class="info-item">
+                            <label>连接状态:</label>
+                            <span id="connection-status">未连接</span>
+                        </div>
+                        <div class="info-item">
+                            <label>最后更新时间:</label>
+                            <span id="last-update">--:--:--</span>
+                        </div>
+                    </div>
+                    
+                    <div class="log-panel">
+                        <h3>控制日志</h3>
+                        <div id="log-container"></div>
+                        <button onclick="clearLog()">清空日志</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>水下机器人控制系统 | 树莓派 Web 控制界面</p>
+            <p class="connection-info" id="connection-info">
+                连接到: <span id="server-address">等待连接...</span>
+            </p>
+        </footer>
+    </div>
+
+    <!-- 截图预览模态框 -->
+    <div id="snapshot-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>截图预览</h2>
+            <img id="snapshot-preview" src="" alt="截图预览">
+            <div class="modal-actions">
+                <button onclick="downloadSnapshot()">下载图片</button>
+                <button onclick="closeModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
