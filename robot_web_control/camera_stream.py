@@ -97,19 +97,22 @@ class CameraStream:
             # 调整大小
             if frame.shape[1] != self.width or frame.shape[0] != self.height:
                 frame = cv2.resize(frame, (self.width, self.height))
-            
+        
+            # 镜像翻转（修正左右相反问题）
+            frame = cv2.flip(frame, 1)  # 1表示水平翻转
+        
             # 添加时间戳
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
             cv2.putText(frame, timestamp, (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            
+        
             # 添加分辨率信息
             info = f"{self.width}x{self.height}"
             cv2.putText(frame, info, (10, self.height - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-            
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        
             return frame
-            
+        
         except Exception as e:
             print(f"处理帧错误: {e}")
             return frame

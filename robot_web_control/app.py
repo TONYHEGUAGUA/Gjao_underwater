@@ -225,6 +225,7 @@ def handle_control_command(data):
 def handle_vacuum_control(data):
     """处理负压吸附控制"""
     try:
+        print(f"收到负压吸附控制: {e}")
         state = data.get('state', False)
         success = web_node.control_vacuum(state)
         
