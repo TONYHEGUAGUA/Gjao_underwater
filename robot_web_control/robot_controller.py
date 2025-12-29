@@ -30,7 +30,7 @@ class RobotController:
         self.REVERSE_RIGHT_MOTOR = True
 
         # 串口初始化参数（可通过 ROS 参数调整）
-        self.serial_port = rospy.get_param('~serial_port', '/dev/ttyUSB1')
+        self.serial_port = rospy.get_param('~serial_port', '/dev/ttyUSB2')
         self.baud_rate = rospy.get_param('~baud_rate', 115200)
         self.ser = None
         self.serial_lock = threading.Lock()
