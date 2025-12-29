@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # robot_controller.py - 机器人控制器（直接串口控制）
 # 说明：增强了异常处理与日志、串口写入锁、串口重试、并确保不会引用未绑定的变量。
+# 新增：serial_verbose 参数（~serial_verbose），写入时始终打印 "[SERIAL OUT] ..."，并尝试读取串口返回 "[SERIAL IN] ..."
 
 import rospy
 import math
@@ -28,13 +29,17 @@ class RobotController:
         self.REVERSE_LEFT_MOTOR = True
         self.REVERSE_RIGHT_MOTOR = True
 
-        # 串口初始化
+        # 串口初始化参数（可通过 ROS 参数调整）
         self.serial_port = rospy.get_param('~serial_port', '/dev/ttyUSB1')
         self.baud_rate = rospy.get_param('~baud_rate', 115200)
         self.ser = None
         self.serial_lock = threading.Lock()
         self._serial_retry_count = rospy.get_param('~serial_retry_count', 1)
         self._serial_retry_delay = rospy.get_param('~serial_retry_delay', 0.5)
+        # 新增：是否在每次写入时打印发送内容和读取返回（默认 True）
+        self.serial_verbose = rospy.get_param('~serial_verbose', True)
+        # 最大等待串口返回的时长（秒）
+        self._serial_read_timeout = rospy.get_param('~serial_read_timeout', 0.05)
 
         self._init_serial()
 
@@ -62,7 +67,8 @@ class RobotController:
         self.max_angular_speed = 1.0  # rad/s
 
         rospy.loginfo("机器人控制器初始化完成（直接串口控制）")
-        logger.debug("RobotController initialized: serial_port=%s baud=%s", self.serial_port, self.baud_rate)
+        logger.debug("RobotController initialized: serial_port=%s baud=%s serial_verbose=%s",
+                     self.serial_port, self.baud_rate, self.serial_verbose)
 
     def _init_serial(self):
         """尝试初始化串口，支持重试机制"""
@@ -88,28 +94,76 @@ class RobotController:
         rospy.logwarn("串口打开失败，进入模拟模式（ser=None）")
 
     def send_serial_command(self, command, write_timeout=1.0):
-        """发送串口命令。若串口不可用，则以模拟方式打印日志。线程安全。"""
+        """
+        发送串口命令并打印发送内容与可能的返回。
+        - command: str，要发送的文本（例如 "M,1500,1500\n" 或 "!\n"）
+        - 返回 True/False 表示写入是否成功（或已模拟写入）
+        """
+        # 规范化保证为字符串并以换行结尾（根据你的协议）
+        if not isinstance(command, str):
+            command = str(command)
+        # 不强制添加换行，但通常命令以 '\n' 结尾；你可以按需修改
+        out = command
+
         with self.serial_lock:
             if self.ser and getattr(self.ser, "is_open", False):
                 try:
-                    # 有些串口库可能需要 bytes，不要忘记 encode
-                    self.ser.write(command.encode())
+                    # 写入
+                    self.ser.write(out.encode())
                     try:
                         self.ser.flush()
                     except Exception:
                         pass
-                    rospy.logdebug(f"串口写入: {command.strip()}")
-                    logger.debug("serial write OK: %s", command.strip())
+
+                    # 打印发送内容，便于调试
+                    if self.serial_verbose:
+                        msg = f"[SERIAL OUT] {out.strip()}"
+                        rospy.loginfo(msg)
+                        print(msg)
+
+                    # 尝试短时间读取串口返回（如果设备会回复）
+                    if self._serial_read_timeout and self._serial_read_timeout > 0:
+                        try:
+                            # 等待一点时间让设备返回
+                            time.sleep(self._serial_read_timeout)
+                            # 读取所有可用字节
+                            available = 0
+                            try:
+                                available = self.ser.in_waiting
+                            except Exception:
+                                # 某些环境下 in_waiting 可能不可用
+                                available = 0
+                            if available and available > 0:
+                                data = self.ser.read(available)
+                                try:
+                                    decoded = data.decode(errors='ignore').strip()
+                                except Exception:
+                                    decoded = repr(data)
+                                if self.serial_verbose:
+                                    in_msg = f"[SERIAL IN] {decoded}"
+                                    rospy.loginfo(in_msg)
+                                    print(in_msg)
+                            else:
+                                # 如果没有可读数据，也打印一行（可选）
+                                if self.serial_verbose:
+                                    rospy.logdebug("[SERIAL IN] <no data>")
+                        except Exception:
+                            # 读取串口返回时不要让异常影响主流程
+                            logger.debug("读取串口返回时出错:\n" + traceback.format_exc())
+
                     return True
                 except Exception as e:
+                    # 串口写入失败，记录异常和 traceback
                     rospy.logerr(f"发送串口命令失败: {e}")
                     logger.error("Traceback for serial write:\n%s", traceback.format_exc())
+                    if self.serial_verbose:
+                        print(f"[SERIAL OUT-ERR] {out.strip()} -> {e}")
                     return False
             else:
-                rospy.logwarn(f"串口未连接，模拟发送命令: {command.strip()}")
-                # 同时打印到 stdout 方便非 ROS 环境调试
-                print(f"[模拟] 发送命令: {command.strip()}")
-                logger.debug("simulated serial write: %s", command.strip())
+                # 串口不可用，模拟打印
+                rospy.logwarn(f"串口未连接，模拟发送命令: {out.strip()}")
+                print(f"[SIMULATED SERIAL OUT] {out.strip()}")
+                logger.debug("simulated serial write: %s", out.strip())
                 return False
 
     def pwm_to_velocity(self, pwm):
