@@ -34,7 +34,7 @@ class RobotController:
         self.REVERSE_RIGHT_MOTOR = rospy.get_param('~reverse_right_motor', True)
 
         # 串口参数
-        self.serial_port = rospy.get_param('~serial_port', '/dev/ttyUSB2')
+        self.serial_port = rospy.get_param('~serial_port', '/dev/ttyUSB1')
         self.baud_rate = rospy.get_param('~baud_rate', 115200)
         self._serial_retry_count = rospy.get_param('~serial_retry_count', 1)
         self._serial_retry_delay = rospy.get_param('~serial_retry_delay', 0.5)

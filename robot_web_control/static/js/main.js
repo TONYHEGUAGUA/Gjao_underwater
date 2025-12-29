@@ -1,4 +1,9 @@
-// main.js - 前端控制逻辑
+// main.js - 前端控制逻辑（已修改）
+//
+// 主要改动：
+// - 监听后端周期广播事件 'robot_status'，并用其数据更新页面上的 "当前速度 / 当前转向 / 机器人位置 / 左右 PWM / 串口状态"
+// - 将 controlParams.maxLinear 默认值调整为 0.8（与后端默认一致）
+// - 在收到 robot_status 时更新地图/位置显示，保持原有 control_response / robot_pose 兼容
 
 // 全局变量
 let socket = null;
@@ -13,9 +18,9 @@ let mapContext = null;
 let goals = [];
 let robotPose = { x: 0, y: 0, z: 0 };
 let controlParams = {
-    speed: 0.5,     // 0-1
+    speed: 0.5,     // 0-1 (slider % -> value)
     turn: 0.5,      // 0-1
-    maxLinear: 0.5,
+    maxLinear: 0.8,   // 与后端默认一致（m/s）
     maxAngular: 1.0
 };
 
@@ -51,6 +56,8 @@ function initWebSocket() {
     
     console.log(`连接到WebSocket服务器: ${wsUrl}`);
     
+    // 使用 socket.io 客户端（页面 head 已加载 socket.io.js）
+    // io(wsUrl) 会自动与服务器协商 transport（polling 或 websocket）
     socket = io(wsUrl);
     
     // 连接事件
@@ -75,14 +82,15 @@ function initWebSocket() {
     
     socket.on('control_response', (data) => {
         console.log('控制响应:', data);
-        if (data.success) {
-            updateRobotStatus(data);
+        if (data && data.success) {
+            // control_response 可能包含命令信息（来自按键），用来更新部分 UI（短时）
+            updateRobotStatusFromCommand(data);
         }
     });
     
     socket.on('vacuum_response', (data) => {
         console.log('负压吸附响应:', data);
-        if (data.success) {
+        if (data && data.success) {
             updateVacuumStatus(data.state);
             logMessage('负压吸附', data.state ? '已开启' : '已关闭');
         }
@@ -94,17 +102,59 @@ function initWebSocket() {
         logMessage('目标点', `收到新目标点 (${goal.x.toFixed(2)}, ${goal.y.toFixed(2)})`);
     });
     
+    // 后端周期广播状态（robot_status）
+    socket.on('robot_status', (status) => {
+        // status 例：{speed, turn, robot_pose:{x,y,z}, left_pwm, right_pwm, serial_connected}
+        try {
+            if (!status) return;
+            // 更新速度/转向显示
+            if ('speed' in status) {
+                const speedEl = document.getElementById('current-speed');
+                if (speedEl) speedEl.textContent = (status.speed !== undefined && status.speed !== null) ? status.speed.toFixed(2) + ' m/s' : '0.00 m/s';
+            }
+            if ('turn' in status) {
+                const turnEl = document.getElementById('current-turn');
+                if (turnEl) turnEl.textContent = (status.turn !== undefined && status.turn !== null) ? status.turn.toFixed(2) + ' rad/s' : '0.00 rad/s';
+            }
+            // 更新 PWM
+            if ('left_pwm' in status) {
+                const l = document.getElementById('left-pwm');
+                if (l) l.textContent = status.left_pwm;
+            }
+            if ('right_pwm' in status) {
+                const r = document.getElementById('right-pwm');
+                if (r) r.textContent = status.right_pwm;
+            }
+            // 串口/连接信息
+            if ('serial_connected' in status) {
+                const ss = document.getElementById('serial-status');
+                if (ss) ss.textContent = status.serial_connected ? '已连接' : '未连接/模拟';
+            }
+            // 位置
+            if (status.robot_pose) {
+                robotPose = status.robot_pose;
+                updateRobotPositionDisplay();
+                drawRobotOnMap();
+            }
+        } catch (e) {
+            console.error('处理 robot_status 失败', e);
+        }
+    });
+    
     socket.on('robot_pose', (pose) => {
-        console.log('机器人位置更新:', pose);
-        robotPose = pose;
-        updateRobotPositionDisplay();
-        drawRobotOnMap();
+        // 保持兼容：有些后端也发送单独 robot_pose 事件
+        try {
+            if (!pose) return;
+            robotPose = pose;
+            updateRobotPositionDisplay();
+            drawRobotOnMap();
+        } catch (e) { console.error(e); }
     });
     
     // 错误处理
     socket.on('connect_error', (error) => {
         console.error('WebSocket连接错误:', error);
-        logMessage('错误', `连接失败: ${error.message}`);
+        logMessage('错误', `连接失败: ${error && error.message ? error.message : error}`);
         updateConnectionStatus(false);
     });
 }
@@ -693,42 +743,45 @@ function updateConnectionStatus(connected) {
     }
 }
 
-function updateRobotStatus(data) {
+function updateRobotStatusFromCommand(data) {
+    // data 来自 control_response，通常不包含完整状态，只用于短暂显示
     const speedElement = document.getElementById('current-speed');
     const turnElement = document.getElementById('current-turn');
     const robotStatus = document.getElementById('robot-status');
     
     if (data.command === 'stop') {
-        speedElement.textContent = '0.00 m/s';
-        turnElement.textContent = '0.00 rad/s';
+        if (speedElement) speedElement.textContent = '0.00 m/s';
+        if (turnElement) turnElement.textContent = '0.00 rad/s';
     } else {
-        // 这里可以根据实际数据更新
-        speedElement.textContent = `${data.linear_x?.toFixed(2) || '0.00'} m/s`;
-        turnElement.textContent = `${data.angular_z?.toFixed(2) || '0.00'} rad/s`;
+        if (speedElement) speedElement.textContent = `${(data.linear_x || 0).toFixed(2)} m/s`;
+        if (turnElement) turnElement.textContent = `${(data.angular_z || 0).toFixed(2)} rad/s`;
     }
     
-    robotStatus.textContent = '机器人: 在线';
-    robotStatus.className = 'online';
+    if (robotStatus) {
+        robotStatus.textContent = '机器人: 在线';
+        robotStatus.className = 'online';
+    }
 }
 
 function updateRobotPositionDisplay() {
     const positionElement = document.getElementById('robot-position');
-    positionElement.textContent = 
-        `(${robotPose.x?.toFixed(2) || '0.00'}, 
-          ${robotPose.y?.toFixed(2) || '0.00'}, 
-          ${robotPose.z?.toFixed(2) || '0.00'})`;
+    if (!positionElement) return;
+    positionElement.textContent = `(${(robotPose.x !== undefined ? robotPose.x.toFixed(2) : '0.00')}, ${(robotPose.y !== undefined ? robotPose.y.toFixed(2) : '0.00')}, ${(robotPose.z !== undefined ? robotPose.z.toFixed(2) : '0.00')})`;
 }
 
 function updateVacuumStatus(state) {
     const vacuumStatus = document.getElementById('vacuum-status');
+    if (!vacuumStatus) return;
     const statusSpan = vacuumStatus.querySelector('span');
     
-    if (state) {
-        statusSpan.textContent = '开启';
-        statusSpan.className = 'on';
-    } else {
-        statusSpan.textContent = '关闭';
-        statusSpan.className = 'off';
+    if (statusSpan) {
+        if (state) {
+            statusSpan.textContent = '开启';
+            statusSpan.className = 'on';
+        } else {
+            statusSpan.textContent = '关闭';
+            statusSpan.className = 'off';
+        }
     }
 }
 
@@ -751,7 +804,8 @@ function logMessage(source, message) {
     logContainer.scrollTop = logContainer.scrollHeight;
     
     // 更新最后更新时间
-    document.getElementById('last-update').textContent = timestamp;
+    const lastUpd = document.getElementById('last-update');
+    if (lastUpd) lastUpd.textContent = timestamp;
 }
 
 function clearLog() {
@@ -786,6 +840,11 @@ async function checkSystemStatus() {
             cameraStatus.className = 'offline';
         }
         
+        // 如果后端表明 robot_controller 已创建，记录日志
+        if (status.robot_controller_created) {
+            logMessage('系统', 'RobotController 已创建（串口控制可用）');
+        }
+        
     } catch (error) {
         console.error('检查系统状态失败:', error);
         logMessage('错误', '无法获取系统状态');
@@ -795,11 +854,13 @@ async function checkSystemStatus() {
 // 更新UI
 function updateUI() {
     // 更新最后更新时间
-    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+    const lastUpd = document.getElementById('last-update');
+    if (lastUpd) lastUpd.textContent = new Date().toLocaleTimeString();
     
     // 启动定期更新
     setInterval(() => {
-        document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+        const lastUpd = document.getElementById('last-update');
+        if (lastUpd) lastUpd.textContent = new Date().toLocaleTimeString();
     }, 1000);
 }
 

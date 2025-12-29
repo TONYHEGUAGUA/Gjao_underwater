@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>水下机器人控制界面</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- 使用服务器/外部提供的 socket.io 客户端 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
@@ -143,6 +144,18 @@
                         <div class="info-item">
                             <label>当前转向:</label>
                             <span id="current-turn">0.00 rad/s</span>
+                        </div>
+                        <div class="info-item">
+                            <label>左 PWM:</label>
+                            <span id="left-pwm">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>右 PWM:</label>
+                            <span id="right-pwm">-</span>
+                        </div>
+                        <div class="info-item">
+                            <label>串口状态:</label>
+                            <span id="serial-status">-</span>
                         </div>
                         <div class="info-item">
                             <label>目标点数量:</label>
